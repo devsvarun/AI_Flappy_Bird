@@ -87,12 +87,11 @@ class Bird:
 		return pygame.mask.from_surface(self.img)
 
 class Pipe:
-	GAP = 200
-	VEL = 5
-
-	def __init__(self, x):
+	def __init__(self, x, base_vel=5):
 		self.x = x
 		self.height = 0
+		self.GAP = 200
+		self.VEL = base_vel
 
 		self.top = 0
 		self.bottom = 0
@@ -109,6 +108,9 @@ class Pipe:
 
 	def move(self):
 		self.x -= self.VEL
+
+	def update_speed(self, new_vel):
+		self.VEL = new_vel
 
 	def draw(self, win):
 		win.blit(self.PIPE_TOP, (self.x, self.top))
@@ -130,14 +132,14 @@ class Pipe:
 		return False
 
 class Base:
-	VEL = 5
 	WIDTH = BASE_IMG.get_width()
 	IMG = BASE_IMG
 
-	def __init__(self, y):
+	def __init__(self, y, base_vel=5):
 		self.y = y
 		self.x1 = 0
 		self.x2 = self.WIDTH
+		self.VEL = base_vel 
 
 	def move(self):
 		self.x1 -= self.VEL
@@ -148,13 +150,26 @@ class Base:
 		if self.x2 + self.WIDTH <= 0:
 			self.x2 = self.x1 + self.WIDTH
 
+	def update_speed(self, new_vel):
+		self.VEL = new_vel
+
 	def draw(self, win):
 		win.blit(self.IMG, (self.x1, self.y))
 		win.blit(self.IMG, (self.x2, self.y))
 
+def get_current_speed(score):
+	"""Calculate current game speed based on score"""
+	base_speed = 5
+	speed_increase = 1
+	difficulty_threshold = 5
+	
+	speed_level = score // difficulty_threshold
+	current_speed = base_speed + (speed_level * speed_increase)
+	
+	max_speed = 25
+	return min(current_speed, max_speed)
 
-
-def draw_window(win, birds, pipes, base, score, gen, birds_alive):
+def draw_window(win, birds, pipes, base, score, gen, birds_alive, current_speed):
 	win.blit(BG_IMG, (0, 0))
 
 	for pipe in pipes:
@@ -169,6 +184,9 @@ def draw_window(win, birds, pipes, base, score, gen, birds_alive):
 	text = STAT_FONT.render("Alive: "+ str(birds_alive), 1, (255, 255, 255))
 	win.blit(text, (10, 50))
 
+	speed_text = STAT_FONT.render(f"Speed: {current_speed:.1f}", 1, (255, 255, 255))
+	win.blit(speed_text, (10, 90))
+
 	base.draw(win)
 	for bird in birds:
 		bird.draw(win)
@@ -180,6 +198,7 @@ def main(genomes, config):
 	global GEN
 	GEN += 1
 	global BIRDS_ALIVE
+	BIRDS_ALIVE = 0
 	nets = []
 	ge = []
 	birds = []
@@ -192,11 +211,13 @@ def main(genomes, config):
 		g.fitness = 0
 		ge.append(g)
 
-	base = Base(630)
-	pipes = [Pipe(600)]
+	current_speed = 5
+	base = Base(630, current_speed)
+	pipes = [Pipe(600, current_speed)]
 	win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
 	clock = pygame.time.Clock()
 	score = 0
+	last_speed_update = 0
 
 	run = True
 	while run:
@@ -211,7 +232,7 @@ def main(genomes, config):
 		if len(birds) > 0:
 			if len(pipes) > 1 and birds[0].x > pipes[0].x + pipes[0].PIPE_TOP.get_width():
 				pipe_ind = 1
-		else:
+		if len(birds) == 0:
 			run = False
 			break
 
@@ -224,6 +245,13 @@ def main(genomes, config):
 			if output[0] > 0.5:
 				bird.jump()
 		
+		new_speed = get_current_speed(score)
+		if new_speed != current_speed:
+			current_speed = new_speed
+			base.update_speed(current_speed)
+			for pipe in pipes:
+				pipe.update_speed(current_speed)
+			last_speed_update = score
 
 		add_pipe = False
 		rem = []
@@ -249,7 +277,7 @@ def main(genomes, config):
 			score += 1
 			for g in ge:
 				g.fitness += 5
-			pipes.append(Pipe(600))
+			pipes.append(Pipe(600, current_speed))
 
 		for r in rem:
 			pipes.remove(r)
@@ -262,11 +290,10 @@ def main(genomes, config):
 				ge.pop(x)	
 
 		base.move()
-		draw_window(win, birds, pipes, base, score, GEN, BIRDS_ALIVE)
+		draw_window(win, birds, pipes, base, score, GEN, BIRDS_ALIVE, current_speed)
 
-		if score > 20:
-			pickle.dump(nets[0],open("best.pickle", "wb"))
-			break
+		if score > 50:
+		    pickle.dump(nets[0],open("best.pickle", "wb"))
 
          
 				
@@ -282,7 +309,7 @@ def run(config_path):
 	stats = neat.StatisticsReporter()
 	p.add_reporter(stats)
 
-	winner = p.run(main, 50)
+	winner = p.run(main, 200)
 
 if __name__ == '__main__':
 	local_dir = os.path.dirname(__file__)
